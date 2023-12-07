@@ -18,3 +18,12 @@ Indirect approach:
 ## Installation
 
 Download one of the pre-compiled binaries from [GitHub](https://github.com/zietzm/igwas_rs/releases/latest)
+
+Alternatively, install from source code.
+If cargo is not installed, see [cargo installation](https://doc.rust-lang.org/cargo/getting-started/installation.html).
+
+```bash
+git clone --depth 1 https://github.com/zietzm/igwas.git
+
+cargo install --path igwas
+```
