@@ -69,10 +69,8 @@ pub fn run(
                     .with_context(|| format!("Error reading GWAS results from file: {}", &filename))
                     .unwrap();
 
-            running
-                .lock()
-                .unwrap()
-                .update(&phenotype_name, &gwas_results);
+            let mut running = running.lock().unwrap();
+            running.update(&phenotype_name, &gwas_results);
         });
 
         start_line = end_line;
