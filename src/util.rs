@@ -16,10 +16,7 @@ pub fn run(
     output_file: &str,
     num_covar: usize,
     chunksize: usize,
-    variant_id: String,
-    beta: String,
-    std_error: String,
-    sample_size: String,
+    column_names: io::gwas::ColumnSpec,
 ) -> Result<()> {
     let projection_matrix =
         io::matrix::read_labeled_matrix(projection_matrix_path).with_context(|| {
@@ -41,13 +38,6 @@ pub fn run(
                 covariance_matrix_path
             )
         })?;
-
-    let colspec = io::gwas::ColumnSpec {
-        variant_id,
-        beta,
-        se: std_error,
-        sample_size,
-    };
 
     let running = Arc::new(Mutex::new(RunningSufficientStats::new(
         &projection_matrix,
@@ -75,7 +65,7 @@ pub fn run(
             );
 
             let gwas_results =
-                io::gwas::read_gwas_results(filename, &colspec, start_line, end_line)
+                io::gwas::read_gwas_results(filename, &column_names, start_line, end_line)
                     .with_context(|| format!("Error reading GWAS results from file: {}", &filename))
                     .unwrap();
 
