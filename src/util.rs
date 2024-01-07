@@ -43,19 +43,15 @@ pub fn run(
     info!("Covariance has labels {:?}", cov_matrix.col_labels);
     info!("Projection has labels {:?}", projection_matrix.row_labels);
 
-    let running = Arc::new(Mutex::new(RunningSufficientStats::new(
-        &projection_matrix,
-        &cov_matrix,
-        num_covar,
-        chunksize,
-    )));
+    let mut running =
+        RunningSufficientStats::new(&projection_matrix, &cov_matrix, num_covar, chunksize);
 
     let num_lines = io::gwas::count_lines(&gwas_result_files[0])?;
     let mut start_line = 0;
     let mut end_line = 0;
     while start_line < num_lines {
         end_line = cmp::min(num_lines, end_line + chunksize);
-        gwas_result_files.par_iter().for_each(|filename: &String| {
+        gwas_result_files.iter().for_each(|filename: &String| {
             let phenotype_name = Path::new(filename)
                 .file_stem()
                 .unwrap()
@@ -73,7 +69,6 @@ pub fn run(
                     .with_context(|| format!("Error reading GWAS results from file: {}", &filename))
                     .unwrap();
 
-            let mut running = running.lock().unwrap();
             running.update(&phenotype_name, &gwas_results).unwrap();
             info!("Finished reading GWAS results from {}", filename);
         });
@@ -81,7 +76,7 @@ pub fn run(
         start_line = end_line;
     }
 
-    let final_stats = running.lock().unwrap().compute_final_stats();
+    let final_stats = running.compute_final_stats();
 
     io::gwas::write_gwas_results(final_stats, output_file)
         .with_context(|| format!("Error writing GWAS results to file: {}", output_file))?;
