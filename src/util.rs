@@ -39,6 +39,10 @@ pub fn run(
             )
         })?;
 
+    info!("Covariance has shape {:?}", cov_matrix.matrix.shape());
+    info!("Covariance has labels {:?}", cov_matrix.col_labels);
+    info!("Projection has labels {:?}", projection_matrix.row_labels);
+
     let running = Arc::new(Mutex::new(RunningSufficientStats::new(
         &projection_matrix,
         &cov_matrix,
