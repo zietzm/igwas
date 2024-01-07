@@ -87,6 +87,7 @@ pub fn read_gwas_results(
     end_line: usize,
 ) -> Result<GwasResults> {
     let mut reader = csv_sniffer::Sniffer::new().open_path(filename)?;
+    println!("Headers!!! {:?}", reader.headers()?);
 
     // Get the indices of the columns we want
     let header = reader.headers()?;
