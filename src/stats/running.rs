@@ -3,6 +3,7 @@ use crate::stats::sumstats::compute_neg_log_pvalue;
 
 use std::collections::HashMap;
 
+use anyhow::{anyhow, Result};
 use nalgebra::{Const, DMatrix, DVector, Dyn};
 
 pub struct RunningSufficientStats {
@@ -84,7 +85,7 @@ impl RunningSufficientStats {
             n_features_seen: 0,
         }
     }
-    pub fn update(&mut self, phenotype_id: &str, gwas_results: &GwasResults) {
+    pub fn update(&mut self, phenotype_id: &str, gwas_results: &GwasResults) -> Result<()> {
         if self.n_features_seen == 0 {
             self.sample_sizes = gwas_results.sample_sizes.clone();
             self.variant_ids = Some(gwas_results.variant_ids.clone());
@@ -98,15 +99,10 @@ impl RunningSufficientStats {
             );
         }
 
-        let phenotype_idx = self
-            .phenotype_id_to_idx
-            .get(phenotype_id)
-            .unwrap_or_else(|| {
-                panic!(
-                    "Phenotype id {} not found in projection matrix",
-                    phenotype_id
-                )
-            });
+        let phenotype_idx = self.phenotype_id_to_idx.get(phenotype_id).ok_or(anyhow!(
+            "Phenotype id {} not found in projection matrix",
+            phenotype_id
+        ))?;
         let coef = &self.proj.row(*phenotype_idx);
 
         let b = &gwas_results.beta_values;
@@ -121,6 +117,8 @@ impl RunningSufficientStats {
         });
 
         self.n_features_seen += 1;
+
+        Ok(())
     }
 
     pub fn compute_final_stats(&mut self) -> IGwasResults {

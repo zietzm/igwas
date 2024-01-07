@@ -70,7 +70,7 @@ pub fn run(
                     .unwrap();
 
             let mut running = running.lock().unwrap();
-            running.update(&phenotype_name, &gwas_results);
+            running.update(&phenotype_name, &gwas_results).unwrap();
         });
 
         start_line = end_line;
