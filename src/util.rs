@@ -75,6 +75,7 @@ pub fn run(
 
             let mut running = running.lock().unwrap();
             running.update(&phenotype_name, &gwas_results).unwrap();
+            info!("Finished reading GWAS results from {}", filename);
         });
 
         start_line = end_line;
