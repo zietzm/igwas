@@ -142,9 +142,15 @@ impl RunningSufficientStats {
         self.gpv /= self.n_features_seen as f32;
         let dof = self.sample_sizes.map(|x| x - 2 - self.n_covar as i32);
         let ppv = (self.proj.transpose() * &self.cov * &self.proj).diagonal();
-        let se = DMatrix::from_fn(self.gpv.nrows(), ppv.nrows(), |i, j| {
-            ((ppv[j] / self.gpv[i] - self.beta[(i, j)].powi(2)) / dof[i] as f32).sqrt()
-        });
+        let mut se = DMatrix::zeros(self.gpv.nrows(), ppv.nrows());
+        se.par_column_iter_mut()
+            .enumerate()
+            .for_each(|(j, mut col)| {
+                for i in 0..col.len() {
+                    col[i] =
+                        ((ppv[j] / self.gpv[i] - self.beta[(i, j)].powi(2)) / dof[i] as f32).sqrt();
+                }
+            });
         let t_stat = self.beta.component_div(&se);
         let mut p_values = DMatrix::zeros(t_stat.nrows(), t_stat.ncols());
         p_values

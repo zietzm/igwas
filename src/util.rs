@@ -57,6 +57,7 @@ fn check_filter_inputs(
 pub struct RuntimeConfig {
     pub num_threads: usize,
     pub chunksize: usize,
+    pub compress: bool,
 }
 
 fn gwas_reader(
@@ -92,13 +93,13 @@ fn process_chunk(
     end_line: usize,
     num_lines: usize,
     output_file: &str,
-    num_threads: usize,
+    runtime_config: &RuntimeConfig,
     running: Arc<Mutex<RunningSufficientStats>>,
 ) -> Result<()> {
     let (sender, receiver) = crossbeam_channel::unbounded::<(String, GwasResults)>();
 
     let mut workers = Vec::new();
-    for _ in 0..num_threads {
+    for _ in 0..runtime_config.num_threads {
         let receiver = receiver.clone();
         let running = running.clone();
         workers.push(std::thread::spawn(move || {
@@ -138,8 +139,13 @@ fn process_chunk(
 
     info!("Writing results to file: {}", output_file);
     let include_header = start_line == 0;
-    io::gwas::write_gwas_results(final_stats, output_file, include_header)
-        .with_context(|| format!("Error writing GWAS results to file: {}", output_file))?;
+    io::gwas::write_gwas_results(
+        final_stats,
+        output_file,
+        include_header,
+        runtime_config.compress,
+    )
+    .with_context(|| format!("Error writing GWAS results to file: {}", output_file))?;
 
     Ok(())
 }
@@ -203,7 +209,7 @@ pub fn run(
             end_line,
             num_lines,
             output_file,
-            runtime_config.num_threads,
+            &runtime_config,
             running.clone(),
         )?;
 

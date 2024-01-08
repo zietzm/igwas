@@ -58,6 +58,10 @@ pub struct InputArguments {
     #[arg(short, long, default_value_t = 1)]
     pub num_threads: usize,
 
+    /// Whether to compress the output using zstd
+    #[arg(long, default_value_t = false)]
+    pub compress: bool,
+
     /// Suppress output
     #[arg(short, long)]
     pub quiet: bool,
@@ -85,6 +89,7 @@ pub fn run_cli(args: InputArguments) -> Result<()> {
     let runtime_config = util::RuntimeConfig {
         num_threads: args.num_threads,
         chunksize: args.chunksize,
+        compress: args.compress,
     };
 
     util::run(

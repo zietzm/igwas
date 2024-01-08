@@ -67,6 +67,7 @@ fn run_fn() {
         igwas::util::RuntimeConfig {
             num_threads: args.num_threads,
             chunksize: args.chunksize,
+            compress: false,
         },
         igwas::io::gwas::ColumnSpec {
             variant_id: args.variant_id,

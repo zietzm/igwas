@@ -126,23 +126,11 @@ pub fn read_gwas_results(
     })
 }
 
-pub fn write_gwas_results(results: IGwasResults, filename: &str, add_header: bool) -> Result<()> {
-    let file = if add_header {
-        OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .open(filename)?
-    } else {
-        OpenOptions::new().append(true).open(filename)?
-    };
-
-    let mut writer = csv::WriterBuilder::new()
-        .delimiter(b'\t')
-        .buffer_capacity(8 * (1 << 13))
-        .from_writer(file);
-
-    // Write the header
+fn write_rows<W: std::io::Write>(
+    writer: &mut csv::Writer<W>,
+    results: &IGwasResults,
+    add_header: bool,
+) -> Result<()> {
     if add_header {
         writer.write_record([
             "phenotype_id",
@@ -155,7 +143,6 @@ pub fn write_gwas_results(results: IGwasResults, filename: &str, add_header: boo
         ])?;
     }
 
-    // Write the results
     for i in 0..results.variant_ids.len() {
         writer.write_record(&[
             results.projection_ids[i].clone(),
@@ -167,6 +154,40 @@ pub fn write_gwas_results(results: IGwasResults, filename: &str, add_header: boo
             results.sample_sizes[i].to_string(),
         ])?;
     }
+
+    Ok(())
+}
+
+pub fn write_gwas_results(
+    results: IGwasResults,
+    filename: &str,
+    add_header: bool,
+    compress: bool,
+) -> Result<()> {
+    let file = if add_header {
+        OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(filename)?
+    } else {
+        OpenOptions::new().append(true).open(filename)?
+    };
+
+    if compress {
+        let zstd_writer = zstd::stream::write::Encoder::new(file, 0)?.auto_finish();
+        let mut writer = csv::WriterBuilder::new()
+            .delimiter(b'\t')
+            .buffer_capacity(8 * (1 << 13))
+            .from_writer(zstd_writer);
+        write_rows(&mut writer, &results, add_header)?;
+    } else {
+        let mut writer = csv::WriterBuilder::new()
+            .delimiter(b'\t')
+            .buffer_capacity(8 * (1 << 13))
+            .from_writer(file);
+        write_rows(&mut writer, &results, add_header)?;
+    };
 
     Ok(())
 }
