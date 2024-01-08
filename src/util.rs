@@ -12,7 +12,7 @@ use rayon::prelude::*;
 pub fn run(
     projection_matrix_path: &str,
     covariance_matrix_path: &str,
-    gwas_result_files: &Vec<String>,
+    gwas_result_files: &[String],
     output_file: &str,
     num_covar: usize,
     chunksize: usize,
@@ -27,7 +27,7 @@ pub fn run(
         })?;
 
     info!(
-        "Projection matrix has shape {:?}",
+        "Projction matrix has shape {:?}",
         projection_matrix.matrix.shape()
     );
 
@@ -43,15 +43,23 @@ pub fn run(
     info!("Covariance has labels {:?}", cov_matrix.col_labels);
     info!("Projection has labels {:?}", projection_matrix.row_labels);
 
-    let mut running =
-        RunningSufficientStats::new(&projection_matrix, &cov_matrix, num_covar, chunksize);
+    let running = Arc::new(Mutex::new(RunningSufficientStats::new(
+        &projection_matrix,
+        &cov_matrix,
+        num_covar,
+        chunksize,
+    )));
 
     let num_lines = io::gwas::count_lines(&gwas_result_files[0])?;
     let mut start_line = 0;
     let mut end_line = 0;
     while start_line < num_lines {
         end_line = cmp::min(num_lines, end_line + chunksize);
-        gwas_result_files.iter().for_each(|filename: &String| {
+
+        let new_chunksize = end_line - start_line;
+        running.lock().unwrap().clear_chunk(new_chunksize);
+
+        gwas_result_files.par_iter().for_each(|filename: &String| {
             let phenotype_name = Path::new(filename)
                 .file_stem()
                 .unwrap()
@@ -69,16 +77,23 @@ pub fn run(
                     .with_context(|| format!("Error reading GWAS results from file: {}", &filename))
                     .unwrap();
 
-            running.update(&phenotype_name, &gwas_results).unwrap();
-            info!("Finished reading GWAS results from {}", filename);
+            running
+                .lock()
+                .unwrap()
+                .update(&phenotype_name, &gwas_results)
+                .unwrap();
         });
+
+        let final_stats = running.lock().unwrap().compute_final_stats();
+        let include_header = start_line == 0;
+        io::gwas::write_gwas_results(final_stats, output_file, include_header)
+            .with_context(|| format!("Error writing GWAS results to file: {}", output_file))?;
 
         start_line = end_line;
     }
 
-    let final_stats = running.compute_final_stats();
-
-    io::gwas::write_gwas_results(final_stats, output_file)
+    let final_stats = running.lock().unwrap().compute_final_stats();
+    io::gwas::write_gwas_results(final_stats, output_file, false)
         .with_context(|| format!("Error writing GWAS results to file: {}", output_file))?;
 
     Ok(())
