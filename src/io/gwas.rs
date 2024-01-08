@@ -137,7 +137,10 @@ pub fn write_gwas_results(results: IGwasResults, filename: &str, add_header: boo
         OpenOptions::new().append(true).open(filename)?
     };
 
-    let mut writer = csv::WriterBuilder::new().delimiter(b'\t').from_writer(file);
+    let mut writer = csv::WriterBuilder::new()
+        .delimiter(b'\t')
+        .buffer_capacity(8 * (1 << 13))
+        .from_writer(file);
 
     // Write the header
     if add_header {

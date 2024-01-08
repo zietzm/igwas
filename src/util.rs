@@ -209,9 +209,5 @@ pub fn run(
         start_line = end_line;
     }
 
-    let final_stats = running.lock().unwrap().compute_final_stats();
-    io::gwas::write_gwas_results(final_stats, output_file, false)
-        .with_context(|| format!("Error writing GWAS results to file: {}", output_file))?;
-
     Ok(())
 }

@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use nalgebra::{Const, DMatrix, DVector, Dyn};
+use rayon::prelude::*;
 
 use crate::io::{gwas::GwasResults, gwas::IGwasResults, matrix::LabeledMatrix};
 use crate::stats::sumstats::compute_neg_log_pvalue;
@@ -145,16 +146,25 @@ impl RunningSufficientStats {
             ((ppv[j] / self.gpv[i] - self.beta[(i, j)].powi(2)) / dof[i] as f32).sqrt()
         });
         let t_stat = self.beta.component_div(&se);
-        let p_values = DMatrix::from_fn(t_stat.nrows(), t_stat.ncols(), |i, j| {
-            compute_neg_log_pvalue(t_stat[(i, j)], dof[i])
-        });
+        let mut p_values = DMatrix::zeros(t_stat.nrows(), t_stat.ncols());
+        p_values
+            .par_column_iter_mut()
+            .enumerate()
+            .for_each(|(j, mut col)| {
+                for i in 0..col.len() {
+                    col[i] = compute_neg_log_pvalue(t_stat[(i, j)], dof[i]);
+                }
+            });
 
         let n_elements = self.beta.nrows() * self.beta.ncols();
 
-        let variant_ids: Vec<String> = std::iter::repeat(self.variant_ids.clone().unwrap())
-            .take(self.n_projections)
-            .flatten()
-            .collect();
+        let existing_variant_ids = self.variant_ids.clone().unwrap();
+        let mut variant_ids = Vec::with_capacity(self.n_projections * existing_variant_ids.len());
+        variant_ids.extend(
+            std::iter::repeat(existing_variant_ids)
+                .take(self.n_projections)
+                .flatten(),
+        );
 
         let sample_sizes: DVector<i32> = DVector::from_vec(
             self.sample_sizes
