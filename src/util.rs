@@ -134,8 +134,9 @@ fn process_chunk(
         worker.join().unwrap();
     }
     info!("Finished reading chunk, computing statistics");
-
     let final_stats = running.lock().unwrap().compute_final_stats();
+
+    info!("Writing results to file: {}", output_file);
     let include_header = start_line == 0;
     io::gwas::write_gwas_results(final_stats, output_file, include_header)
         .with_context(|| format!("Error writing GWAS results to file: {}", output_file))?;
