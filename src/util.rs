@@ -130,6 +130,7 @@ fn process_chunk(
 
     reader.join().unwrap()?;
     drop(sender);
+    info!("Finished reading chunk, waiting for workers to finish");
 
     for worker in workers {
         worker.join().unwrap();
