@@ -1,13 +1,57 @@
 use std::cmp;
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use crate::io;
 use crate::stats::running::RunningSufficientStats;
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, bail, ensure, Context, Result};
 use log::info;
 use rayon::prelude::*;
+
+fn gwas_path_to_phenotype(filename: &str) -> String {
+    Path::new(filename)
+        .file_stem()
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string()
+}
+
+/// Check that a GWAS result file has been provided for every phenotype in the
+/// projection and covariance matrices. Filter out all GWAS result files that
+/// are not needed.
+fn check_filter_inputs(
+    projection_labels: &[String],
+    covariance_labels: &[String],
+    gwas_result_files: &[String],
+) -> Result<Vec<String>> {
+    ensure!(
+        projection_labels == covariance_labels,
+        "Projection and covariance matrices have different labels"
+    );
+
+    let mut phenotype_to_gwas_path: HashMap<String, String> = HashMap::new();
+    for gwas_path in gwas_result_files {
+        let phenotype = gwas_path_to_phenotype(gwas_path);
+        if phenotype_to_gwas_path.contains_key(&phenotype) {
+            bail!("Multiple GWAS files provided for phenotype {}", phenotype);
+        }
+        phenotype_to_gwas_path.insert(phenotype, gwas_path.to_string());
+    }
+
+    let mut final_gwas_paths = Vec::new();
+    for phenotype in projection_labels {
+        let path = phenotype_to_gwas_path.remove(phenotype).ok_or(anyhow!(
+            "No GWAS result file provided for phenotype {}",
+            phenotype
+        ))?;
+        final_gwas_paths.push(path);
+    }
+
+    Ok(final_gwas_paths)
+}
 
 pub fn run(
     projection_matrix_path: &str,
@@ -26,11 +70,6 @@ pub fn run(
             )
         })?;
 
-    info!(
-        "Projction matrix has shape {:?}",
-        projection_matrix.matrix.shape()
-    );
-
     let cov_matrix =
         io::matrix::read_labeled_matrix(covariance_matrix_path).with_context(|| {
             format!(
@@ -39,9 +78,16 @@ pub fn run(
             )
         })?;
 
-    info!("Covariance has shape {:?}", cov_matrix.matrix.shape());
-    info!("Covariance has labels {:?}", cov_matrix.col_labels);
-    info!("Projection has labels {:?}", projection_matrix.row_labels);
+    info!("Projection shape {:?}", projection_matrix.matrix.shape());
+    info!("Covariance shape {:?}", cov_matrix.matrix.shape());
+    info!("Covariance labels {:?}", cov_matrix.col_labels);
+    info!("Projection labels {:?}", projection_matrix.row_labels);
+
+    let gwas_result_files = check_filter_inputs(
+        &projection_matrix.row_labels,
+        &cov_matrix.col_labels,
+        gwas_result_files,
+    )?;
 
     let running = Arc::new(Mutex::new(RunningSufficientStats::new(
         &projection_matrix,

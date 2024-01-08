@@ -114,10 +114,12 @@ impl RunningSufficientStats {
             );
         }
 
-        let phenotype_idx = self.phenotype_id_to_idx.get(phenotype_id).ok_or(anyhow!(
-            "Phenotype id {} not found in projection matrix",
-            phenotype_id
-        ))?;
+        let phenotype_idx = self.phenotype_id_to_idx.get(phenotype_id).ok_or_else(|| {
+            anyhow!(
+                "Phenotype id {} not found in projection matrix",
+                phenotype_id
+            )
+        })?;
         let coef = &self.proj.row(*phenotype_idx);
 
         let b = &gwas_results.beta_values;
