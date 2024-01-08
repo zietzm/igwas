@@ -126,8 +126,7 @@ pub fn run(
             running
                 .lock()
                 .unwrap()
-                .update(&phenotype_name, &gwas_results)
-                .unwrap();
+                .update(&phenotype_name, &gwas_results);
         });
 
         let final_stats = running.lock().unwrap().compute_final_stats();

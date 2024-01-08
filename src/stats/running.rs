@@ -1,10 +1,9 @@
-use crate::io::{gwas::GwasResults, gwas::IGwasResults, matrix::LabeledMatrix};
-use crate::stats::sumstats::compute_neg_log_pvalue;
-
 use std::collections::HashMap;
 
-use anyhow::{anyhow, Result};
 use nalgebra::{Const, DMatrix, DVector, Dyn};
+
+use crate::io::{gwas::GwasResults, gwas::IGwasResults, matrix::LabeledMatrix};
+use crate::stats::sumstats::compute_neg_log_pvalue;
 
 pub struct RunningSufficientStats {
     pub beta: DMatrix<f32>,
@@ -100,7 +99,7 @@ impl RunningSufficientStats {
         self.n_features_seen = 0;
     }
 
-    pub fn update(&mut self, phenotype_id: &str, gwas_results: &GwasResults) -> Result<()> {
+    pub fn update(&mut self, phenotype_id: &str, gwas_results: &GwasResults) {
         if self.n_features_seen == 0 {
             self.sample_sizes = gwas_results.sample_sizes.clone();
             self.variant_ids = Some(gwas_results.variant_ids.clone());
@@ -129,8 +128,6 @@ impl RunningSufficientStats {
         });
 
         self.n_features_seen += 1;
-
-        Ok(())
     }
 
     pub fn compute_final_stats(&mut self) -> IGwasResults {
