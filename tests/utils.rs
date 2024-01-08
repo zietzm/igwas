@@ -269,6 +269,7 @@ pub fn setup_test(
         beta: "beta".to_string(),
         std_error: "std_error".to_string(),
         sample_size: "sample_size".to_string(),
+        num_threads: 2,
         quiet: true,
     }
 }

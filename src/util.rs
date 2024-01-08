@@ -3,12 +3,13 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use crate::io;
-use crate::stats::running::RunningSufficientStats;
-
 use anyhow::{anyhow, bail, ensure, Context, Result};
+use crossbeam_channel::Sender;
 use log::info;
-use rayon::prelude::*;
+
+use crate::io;
+use crate::io::gwas::GwasResults;
+use crate::stats::running::RunningSufficientStats;
 
 fn gwas_path_to_phenotype(filename: &str) -> String {
     Path::new(filename)
@@ -53,13 +54,102 @@ fn check_filter_inputs(
     Ok(final_gwas_paths)
 }
 
+pub struct RuntimeConfig {
+    pub num_threads: usize,
+    pub chunksize: usize,
+}
+
+fn gwas_reader(
+    gwas_result_files: &[String],
+    column_names: io::gwas::ColumnSpec,
+    start_line: usize,
+    end_line: usize,
+    num_lines: usize,
+    output: Sender<(String, io::gwas::GwasResults)>,
+) -> Result<()> {
+    for filename in gwas_result_files {
+        let phenotype_name = gwas_path_to_phenotype(filename);
+        info!(
+            "Reading lines {} to {} of {} in {}. Interpreted phenotype name: {}",
+            start_line, end_line, num_lines, filename, phenotype_name
+        );
+
+        let gwas_results =
+            io::gwas::read_gwas_results(filename, &column_names, start_line, end_line)
+                .with_context(|| format!("Error reading GWAS results from file: {}", &filename))
+                .unwrap();
+
+        output.send((phenotype_name, gwas_results))?;
+    }
+
+    Ok(())
+}
+
+fn process_chunk(
+    gwas_result_files: Vec<String>,
+    column_names: io::gwas::ColumnSpec,
+    start_line: usize,
+    end_line: usize,
+    num_lines: usize,
+    output_file: &str,
+    num_threads: usize,
+    running: Arc<Mutex<RunningSufficientStats>>,
+) -> Result<()> {
+    let (sender, receiver) = crossbeam_channel::unbounded::<(String, GwasResults)>();
+
+    let mut workers = Vec::new();
+    for _ in 0..num_threads {
+        let receiver = receiver.clone();
+        let running = running.clone();
+        workers.push(std::thread::spawn(move || {
+            for (phenotype_name, gwas_results) in receiver.iter() {
+                running
+                    .lock()
+                    .unwrap()
+                    .update(&phenotype_name, &gwas_results);
+            }
+        }));
+    }
+
+    let reader = std::thread::spawn({
+        let gwas_result_files = gwas_result_files.clone();
+        let column_names = column_names.clone();
+        let sender = sender.clone();
+        move || {
+            gwas_reader(
+                &gwas_result_files,
+                column_names,
+                start_line,
+                end_line,
+                num_lines,
+                sender,
+            )
+        }
+    });
+
+    reader.join().unwrap()?;
+    drop(sender);
+
+    for worker in workers {
+        worker.join().unwrap();
+    }
+    info!("Finished reading chunk, computing statistics");
+
+    let final_stats = running.lock().unwrap().compute_final_stats();
+    let include_header = start_line == 0;
+    io::gwas::write_gwas_results(final_stats, output_file, include_header)
+        .with_context(|| format!("Error writing GWAS results to file: {}", output_file))?;
+
+    Ok(())
+}
+
 pub fn run(
     projection_matrix_path: &str,
     covariance_matrix_path: &str,
     gwas_result_files: &[String],
     output_file: &str,
     num_covar: usize,
-    chunksize: usize,
+    runtime_config: RuntimeConfig,
     column_names: io::gwas::ColumnSpec,
 ) -> Result<()> {
     let projection_matrix =
@@ -93,46 +183,28 @@ pub fn run(
         &projection_matrix,
         &cov_matrix,
         num_covar,
-        chunksize,
+        runtime_config.chunksize,
     )));
 
     let num_lines = io::gwas::count_lines(&gwas_result_files[0])?;
     let mut start_line = 0;
     let mut end_line = 0;
     while start_line < num_lines {
-        end_line = cmp::min(num_lines, end_line + chunksize);
+        end_line = cmp::min(num_lines, end_line + runtime_config.chunksize);
 
         let new_chunksize = end_line - start_line;
         running.lock().unwrap().clear_chunk(new_chunksize);
 
-        gwas_result_files.par_iter().for_each(|filename: &String| {
-            let phenotype_name = Path::new(filename)
-                .file_stem()
-                .unwrap()
-                .to_str()
-                .unwrap()
-                .to_string();
-
-            info!(
-                "Reading lines {} to {} of {} in {}. Interpreted phenotype name: {}",
-                start_line, end_line, num_lines, filename, phenotype_name
-            );
-
-            let gwas_results =
-                io::gwas::read_gwas_results(filename, &column_names, start_line, end_line)
-                    .with_context(|| format!("Error reading GWAS results from file: {}", &filename))
-                    .unwrap();
-
-            running
-                .lock()
-                .unwrap()
-                .update(&phenotype_name, &gwas_results);
-        });
-
-        let final_stats = running.lock().unwrap().compute_final_stats();
-        let include_header = start_line == 0;
-        io::gwas::write_gwas_results(final_stats, output_file, include_header)
-            .with_context(|| format!("Error writing GWAS results to file: {}", output_file))?;
+        process_chunk(
+            gwas_result_files.clone(),
+            column_names.clone(),
+            start_line,
+            end_line,
+            num_lines,
+            output_file,
+            runtime_config.num_threads,
+            running.clone(),
+        )?;
 
         start_line = end_line;
     }

@@ -18,6 +18,7 @@ pub fn count_lines(filename: &str) -> Result<usize> {
 }
 
 // Create a struct ColumnSpec to hold the names of columns
+#[derive(Debug, Clone)]
 pub struct ColumnSpec {
     pub variant_id: String,
     pub beta: String,
