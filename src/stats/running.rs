@@ -114,13 +114,8 @@ impl RunningSufficientStats {
             );
         }
 
-        let phenotype_idx = self.phenotype_id_to_idx.get(phenotype_id).ok_or_else(|| {
-            anyhow!(
-                "Phenotype id {} not found in projection matrix",
-                phenotype_id
-            )
-        })?;
-        let coef = &self.proj.row(*phenotype_idx);
+        let phenotype_idx = self.phenotype_id_to_idx[phenotype_id];
+        let coef = &self.proj.row(phenotype_idx);
 
         let b = &gwas_results.beta_values;
         let se = &gwas_results.se_values;
@@ -129,7 +124,7 @@ impl RunningSufficientStats {
         self.beta += b * coef;
 
         self.gpv += DMatrix::from_fn(self.gpv.nrows(), 1, |i, _| {
-            self.fpv[*phenotype_idx]
+            self.fpv[phenotype_idx]
                 / (se[i].powi(2) * (ss[i] - self.n_covar as i32 - 2) as f32 + b[i].powi(2))
         });
 
