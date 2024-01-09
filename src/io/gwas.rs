@@ -1,8 +1,6 @@
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader};
 
-use log::info;
-
 use anyhow::{Context, Result};
 use nalgebra::DVector;
 
