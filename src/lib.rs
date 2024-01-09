@@ -92,9 +92,9 @@ pub fn run_cli(args: InputArguments) -> Result<()> {
         compress: args.compress,
     };
 
-    rayon::ThreadPoolBuilder::new()
+    let _pool = rayon::ThreadPoolBuilder::new()
         .num_threads(args.num_threads)
-        .build_global()
+        .build()
         .unwrap();
 
     util::run(
