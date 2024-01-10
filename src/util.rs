@@ -6,9 +6,10 @@ use std::sync::{Arc, Mutex};
 use anyhow::{anyhow, bail, ensure, Context, Result};
 use crossbeam_channel::Sender;
 use log::info;
+use nalgebra::{DMatrix, DVector};
 
 use crate::io;
-use crate::io::gwas::GwasResults;
+use crate::io::gwas::{GwasResults, IntermediateResults};
 use crate::stats::running::RunningSufficientStats;
 
 fn gwas_path_to_phenotype(filename: &str) -> String {
@@ -86,6 +87,43 @@ fn gwas_reader(
     Ok(())
 }
 
+pub struct ProcessingStats {
+    pub n_variants: usize,
+    pub proj: DMatrix<f32>,
+    pub fpv: DVector<f32>,
+    pub phenotype_id_to_idx: HashMap<String, usize>,
+    pub n_covar: usize,
+}
+
+impl ProcessingStats {
+    pub fn format_update(
+        &self,
+        phenotype_id: &str,
+        gwas_results: &GwasResults,
+    ) -> IntermediateResults {
+        let phenotype_idx = self.phenotype_id_to_idx[phenotype_id];
+
+        let b = &gwas_results.beta_values;
+        let se = &gwas_results.se_values;
+        let ss = &gwas_results.sample_sizes;
+
+        let beta_update = b * self.proj.row(phenotype_idx);
+
+        let mut gpv_update = DVector::zeros(self.n_variants);
+        for i in 0..self.n_variants {
+            gpv_update[i] = self.fpv[phenotype_idx]
+                / (se[i].powi(2) * (ss[i] - self.n_covar as i32 - 2) as f32 + b[i].powi(2));
+        }
+
+        IntermediateResults {
+            beta_update,
+            gpv_update,
+            sample_sizes: gwas_results.sample_sizes.clone(),
+            variant_ids: gwas_results.variant_ids.clone(),
+        }
+    }
+}
+
 fn process_chunk(
     gwas_result_files: Vec<String>,
     column_names: io::gwas::ColumnSpec,
@@ -96,18 +134,30 @@ fn process_chunk(
     runtime_config: &RuntimeConfig,
     running: Arc<Mutex<RunningSufficientStats>>,
 ) -> Result<()> {
-    let (sender, receiver) = crossbeam_channel::unbounded::<(String, GwasResults)>();
+    let processing_stats = Arc::new(running.lock().unwrap().build_processing_stats());
+
+    let (raw_sender, raw_receiver) = crossbeam_channel::unbounded::<(String, GwasResults)>();
+    let (fmt_sender, fmt_receiver) = crossbeam_channel::unbounded::<IntermediateResults>();
+
+    let updater = std::thread::spawn({
+        let running = running.clone();
+        move || {
+            let mut running = running.lock().unwrap();
+            for intermediate_results in fmt_receiver.iter() {
+                running.update(&intermediate_results);
+            }
+        }
+    });
 
     let mut workers = Vec::new();
     for _ in 0..runtime_config.num_threads {
-        let receiver = receiver.clone();
-        let running = running.clone();
+        let receiver = raw_receiver.clone();
+        let sender = fmt_sender.clone();
+        let processing_stats = processing_stats.clone();
         workers.push(std::thread::spawn(move || {
             for (phenotype_name, gwas_results) in receiver.iter() {
-                running
-                    .lock()
-                    .unwrap()
-                    .update(&phenotype_name, &gwas_results);
+                let result = processing_stats.format_update(&phenotype_name, &gwas_results);
+                sender.send(result).unwrap();
             }
         }));
     }
@@ -115,7 +165,7 @@ fn process_chunk(
     let reader = std::thread::spawn({
         let gwas_result_files = gwas_result_files.clone();
         let column_names = column_names.clone();
-        let sender = sender.clone();
+        let sender = raw_sender.clone();
         move || {
             gwas_reader(
                 &gwas_result_files,
@@ -129,13 +179,17 @@ fn process_chunk(
     });
 
     reader.join().unwrap()?;
-    drop(sender);
+    drop(raw_sender);
     info!("Finished reading chunk, waiting for workers to finish");
 
     for worker in workers {
         worker.join().unwrap();
     }
+    drop(fmt_sender);
+
+    updater.join().unwrap();
     info!("Finished reading chunk, computing statistics");
+
     let final_stats = running.lock().unwrap().compute_final_stats();
 
     info!("Writing results to file: {}", output_file);

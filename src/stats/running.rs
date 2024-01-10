@@ -3,9 +3,11 @@ use std::collections::HashMap;
 use nalgebra::{Const, DMatrix, DVector, Dyn};
 use rayon::prelude::*;
 
-use crate::io::{gwas::GwasResults, gwas::IGwasResults, matrix::LabeledMatrix};
+use crate::io::{gwas::IGwasResults, gwas::IntermediateResults, matrix::LabeledMatrix};
 use crate::stats::sumstats::compute_neg_log_pvalue;
+use crate::util::ProcessingStats;
 
+#[derive(Clone)]
 pub struct RunningSufficientStats {
     pub beta: DMatrix<f32>,
     pub gpv: DVector<f32>,
@@ -100,7 +102,17 @@ impl RunningSufficientStats {
         self.n_features_seen = 0;
     }
 
-    pub fn update(&mut self, phenotype_id: &str, gwas_results: &GwasResults) {
+    pub fn build_processing_stats(&self) -> ProcessingStats {
+        ProcessingStats {
+            n_variants: self.beta.nrows(),
+            proj: self.proj.clone(),
+            fpv: self.fpv.clone(),
+            phenotype_id_to_idx: self.phenotype_id_to_idx.clone(),
+            n_covar: self.n_covar,
+        }
+    }
+
+    pub fn update(&mut self, gwas_results: &IntermediateResults) {
         if self.n_features_seen == 0 {
             self.sample_sizes = gwas_results.sample_sizes.clone();
             self.variant_ids = Some(gwas_results.variant_ids.clone());
@@ -114,20 +126,8 @@ impl RunningSufficientStats {
             );
         }
 
-        let phenotype_idx = self.phenotype_id_to_idx[phenotype_id];
-        let coef = &self.proj.row(phenotype_idx);
-
-        let b = &gwas_results.beta_values;
-        let se = &gwas_results.se_values;
-        let ss = &gwas_results.sample_sizes;
-
-        self.beta += b * coef;
-
-        self.gpv += DMatrix::from_fn(self.gpv.nrows(), 1, |i, _| {
-            self.fpv[phenotype_idx]
-                / (se[i].powi(2) * (ss[i] - self.n_covar as i32 - 2) as f32 + b[i].powi(2))
-        });
-
+        self.beta += &gwas_results.beta_update;
+        self.gpv += &gwas_results.gpv_update;
         self.n_features_seen += 1;
     }
 

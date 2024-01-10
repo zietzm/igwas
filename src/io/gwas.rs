@@ -2,7 +2,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader};
 
 use anyhow::{Context, Result};
-use nalgebra::DVector;
+use nalgebra::{DMatrix, DVector};
 
 pub fn count_lines(filename: &str) -> Result<usize> {
     let file = File::open(filename)?;
@@ -35,6 +35,13 @@ pub struct GwasResults {
     pub variant_ids: Vec<String>,
     pub beta_values: DVector<f32>,
     pub se_values: DVector<f32>,
+    pub sample_sizes: DVector<i32>,
+}
+
+pub struct IntermediateResults {
+    pub variant_ids: Vec<String>,
+    pub beta_update: DMatrix<f32>,
+    pub gpv_update: DVector<f32>,
     pub sample_sizes: DVector<i32>,
 }
 
