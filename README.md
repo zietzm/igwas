@@ -2,6 +2,15 @@
 
 ![Test package](https://github.com/zietzm/igwas/actions/workflows/tests.yml/badge.svg?branch=main)
 
+## Archived 2024-04-28
+
+Moved to https://github.com/tatonetti-lab/indirect-gwas
+
+This implementation subsumed the previous C++ implementation, so this development repository is now archived.
+Please visit the above URL for the latest versions.
+
+## Introduction
+
 Indirect GWAS is a Rust program for computing genome-wide association study results indirectly.
 Unlike traditional methods, indirect GWAS generates GWAS summary statistics for a phenotype definition using only other summary statistics.
 To do so, we approximate a target phenotype using phenotypes for which GWAS summary statistics are already available.
